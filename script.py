@@ -58,10 +58,8 @@ def download_video(url, caminho_destino=None):
         ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best'
         ydl_opts['merge_output_format'] = 'mp4'
     elif plataforma == 'instagram':
-        # Instagram funciona melhor com formato simples
         ydl_opts['format'] = 'best'
     else:
-        # Para outros sites, usa o melhor disponível
         ydl_opts['format'] = 'best'
     
     try:
@@ -69,26 +67,51 @@ def download_video(url, caminho_destino=None):
             print(f"\nBaixando de: {url}")
             ydl.download([url])
             print("\n✓ Download concluído com sucesso!")
-            input("\nPressione Enter para fechar...")
+            return True
     except Exception as e:
         print(f"\n✗ Erro ao baixar: {e}")
         if plataforma == 'instagram' and 'login' in str(e).lower():
             print("\nDICA: Alguns conteúdos do Instagram podem precisar de login.")
             print("Tente abrir o link no navegador primeiro para confirmar que está acessível.")
-        input("\nPressione Enter para fechar...")
+        return False
+
+def menu_principal():
+    """Menu principal com loop para múltiplos downloads"""
+    while True:
+        os.system('cls' if os.name == 'nt' else 'clear')  # Limpa a tela
+        print("=" * 50)
+        print("  DOWNLOADER - YouTube & Instagram")
+        print("=" * 50)
+        print("\nSuporta:")
+        print("  • Vídeos do YouTube")
+        print("  • Reels do Instagram")
+        print("  • Posts do Instagram")
+        print("=" * 50)
+        print()
+        
+        video_url = input("Cole a URL: ")
+        caminho = input("Caminho (vazio = Downloads): ").strip()
+        print()
+        
+        # Faz o download
+        download_video(video_url, caminho)
+        
+        # Menu de opções após o download
+        while True:
+            print("\n" + "=" * 50)
+            print("O que deseja fazer?")
+            print("  [1] Baixar outro vídeo")
+            print("  [2] Fechar programa")
+            print("=" * 50)
+            opcao = input("\nEscolha uma opção (1 ou 2): ").strip()
+            
+            if opcao == '1':
+                break  # Sai do loop interno e volta ao menu principal
+            elif opcao == '2':
+                print("\nEncerrando... Até logo! 👋")
+                sys.exit(0)  # Fecha o programa
+            else:
+                print("❌ Opção inválida! Digite 1 ou 2.")
 
 if __name__ == "__main__":
-    print("=" * 50)
-    print("  DOWNLOADER - YouTube & Instagram")
-    print("=" * 50)
-    print("\nSuporta:")
-    print("  • Vídeos do YouTube")
-    print("  • Reels do Instagram")
-    print("  • Posts do Instagram")
-    print("=" * 50)
-    print()
-    
-    video_url = input("Cole a URL: ")
-    caminho = input("Caminho (vazio = Downloads): ").strip()
-    print()
-    download_video(video_url, caminho)
+    menu_principal()
