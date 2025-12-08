@@ -2,6 +2,8 @@ import yt_dlp
 import os
 import sys
 import winreg
+import subprocess
+import json
 
 def get_resource_path(relative_path):
     """Retorna o caminho correto do arquivo, mesmo quando empacotado"""
@@ -31,7 +33,82 @@ def detectar_plataforma(url):
     else:
         return 'outro'
 
-def download_video(url, caminho_destino=None):
+def get_video_duration(video_path, ffmpeg_path):
+    """Obtém a duração do vídeo em segundos"""
+    try:
+        ffprobe_path = ffmpeg_path.replace('ffmpeg.exe', 'ffprobe.exe')
+        cmd = [
+            ffprobe_path,
+            '-v', 'error',
+            '-show_entries', 'format=duration',
+            '-of', 'json',
+            video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        data = json.loads(result.stdout)
+        return float(data['format']['duration'])
+    except Exception as e:
+        print(f"Erro ao obter duração: {e}")
+        return None
+
+def compress_video(input_path, output_path, ffmpeg_path, target_size_mb=100):
+    """Comprime o vídeo para o tamanho alvo especificado"""
+    print(f"\n🔄 Comprimindo vídeo para {target_size_mb}MB...")
+    
+    # Obtém a duração do vídeo
+    duration = get_video_duration(input_path, ffmpeg_path)
+    if not duration:
+        print("❌ Não foi possível obter a duração do vídeo.")
+        return False
+    
+    print(f"   Duração: {int(duration//60)}min {int(duration%60)}s")
+    
+    # Calcula o bitrate necessário
+    # Fórmula: Bitrate (kbit/s) = (Tamanho em MB × 8192) / Duração em segundos
+    # Subtraímos espaço para áudio (128 kbps)
+    target_size_kb = target_size_mb * 1024
+    audio_bitrate = 128  # kbps
+    video_bitrate = int((target_size_kb * 8) / duration) - audio_bitrate
+    
+    if video_bitrate < 100:
+        print(f"⚠️  Vídeo muito longo! Bitrate calculado muito baixo ({video_bitrate}kbps).")
+        print("   A qualidade pode ficar muito ruim. Deseja continuar? (S/N): ", end='')
+        if input().strip().upper() != 'S':
+            return False
+    
+    print(f"   Bitrate calculado: {video_bitrate}kbps")
+    
+    # Comando ffmpeg para comprimir
+    cmd = [
+        ffmpeg_path,
+        '-i', input_path,
+        '-c:v', 'libx264',
+        '-b:v', f'{video_bitrate}k',
+        '-b:a', f'{audio_bitrate}k',
+        '-vf', 'scale=-2:min(ih\\,720)',  # Limita altura a 720p mantendo proporção
+        '-preset', 'medium',
+        '-y',  # Sobrescreve se existir
+        output_path
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True)
+        
+        # Verifica o tamanho final
+        final_size_mb = os.path.getsize(output_path) / (1024 * 1024)
+        print(f"✓ Vídeo comprimido com sucesso!")
+        print(f"   Tamanho final: {final_size_mb:.2f}MB")
+        
+        # Remove o arquivo original
+        os.remove(input_path)
+        print(f"   Arquivo original removido.")
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Erro ao comprimir: {e}")
+        return False
+
+def download_video(url, caminho_destino=None, comprimir=False):
     if not caminho_destino or caminho_destino.strip() == "":
         caminho_destino = get_download_path()
         print(f"Usando pasta Downloads: {caminho_destino}")
@@ -65,9 +142,33 @@ def download_video(url, caminho_destino=None):
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             print(f"\nBaixando de: {url}")
-            ydl.download([url])
+            
+            # Obtém informações e baixa
+            info = ydl.extract_info(url, download=True)
+            video_path = ydl.prepare_filename(info)
+            
             print("\n✓ Download concluído com sucesso!")
+            
+            # Se o usuário quer comprimir
+            if comprimir:
+                # Verifica o tamanho atual
+                current_size_mb = os.path.getsize(video_path) / (1024 * 1024)
+                print(f"\nTamanho atual: {current_size_mb:.2f}MB")
+                
+                if current_size_mb <= 100:
+                    print("✓ Vídeo já está abaixo de 100MB! Compressão não necessária.")
+                else:
+                    # Cria nome para arquivo comprimido
+                    base, ext = os.path.splitext(video_path)
+                    compressed_path = f"{base}_compressed{ext}"
+                    
+                    # Comprime
+                    if compress_video(video_path, compressed_path, ffmpeg_path, 100):
+                        # Renomeia o comprimido para o nome original
+                        os.rename(compressed_path, video_path)
+            
             return True
+            
     except Exception as e:
         print(f"\n✗ Erro ao baixar: {e}")
         if plataforma == 'instagram' and 'login' in str(e).lower():
@@ -78,7 +179,7 @@ def download_video(url, caminho_destino=None):
 def menu_principal():
     """Menu principal com loop para múltiplos downloads"""
     while True:
-        os.system('cls' if os.name == 'nt' else 'clear')  # Limpa a tela
+        os.system('cls' if os.name == 'nt' else 'clear')
         print("=" * 50)
         print("  DOWNLOADER - YouTube & Instagram")
         print("=" * 50)
@@ -91,10 +192,15 @@ def menu_principal():
         
         video_url = input("Cole a URL: ")
         caminho = input("Caminho (vazio = Downloads): ").strip()
+        
+        # Pergunta se quer comprimir
+        print("\nDeseja comprimir o vídeo para no máximo 100MB? (S/N): ", end='')
+        comprimir = input().strip().upper() == 'S'
+        
         print()
         
         # Faz o download
-        download_video(video_url, caminho)
+        download_video(video_url, caminho, comprimir)
         
         # Menu de opções após o download
         while True:
@@ -106,10 +212,10 @@ def menu_principal():
             opcao = input("\nEscolha uma opção (1 ou 2): ").strip()
             
             if opcao == '1':
-                break  # Sai do loop interno e volta ao menu principal
+                break
             elif opcao == '2':
                 print("\nEncerrando... Até logo! 👋")
-                sys.exit(0)  # Fecha o programa
+                sys.exit(0)
             else:
                 print("❌ Opção inválida! Digite 1 ou 2.")
 
